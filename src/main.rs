@@ -6,6 +6,8 @@ use std::time::Instant;
 
 use rayon::prelude::*;
 
+const FAST_THRESHOLD : usize = 1600;
+
 fn main() {
     println!("enter word len");
     let word_len = read().parse::<usize>().unwrap();
@@ -33,12 +35,12 @@ fn main() {
             .collect::<Vec<&str>>();
 
         let mut possible_words = &possible_words;
-        let mut fast = possible_words.len() > 1500;
+        let mut fast = possible_words.len() > FAST_THRESHOLD;
 
         if first && fast {
             println!("using culled list: was {}, now: {}", possible_words.len(), alt_word_list.len());
             possible_words = &alt_word_list;
-            fast = possible_words.len() > 1500;
+            fast = possible_words.len() > FAST_THRESHOLD;
         } else {
             println!("using full list");
         }
