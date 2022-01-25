@@ -2,6 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{Read, stdin};
+use std::time::Instant;
 
 use rayon::prelude::*;
 
@@ -24,6 +25,8 @@ fn main() {
     let mut first = true;
 
     loop {
+        let start = Instant::now();
+
         possible_words = possible_words.iter()
             .filter(|&word| check_word(word, word_len, &known_placement_letters, &needed_letters, &avoid_letters))
             .copied()
@@ -67,6 +70,9 @@ fn main() {
                 println!("{}, average score: {}, best: {}, worst: {}", word, score.0, score.2, score.1);
             }
         }
+
+        let time = start.elapsed();
+        println!("computation took {} seconds", time.as_secs_f64());
 
         println!("enter new info in format place,needed,avoid (a??b?,?c???,d)");
         let input = read().to_lowercase();
