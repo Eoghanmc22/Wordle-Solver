@@ -27,7 +27,7 @@ fn main() {
     loop {
         let start = Instant::now();
 
-        possible_words = possible_words.iter()
+        possible_words = possible_words.par_iter()
             .filter(|&word| check_word(word, word_len, &known_placement_letters, &needed_letters, &avoid_letters))
             .copied()
             .collect::<Vec<&str>>();
