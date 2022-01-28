@@ -56,11 +56,11 @@ fn main() {
         if fast {
             let mut scored_possible_words = possible_words.par_iter()
                 .map(|&word| (word, score_word_fast(word, possible_words)))
-                .collect::<Vec<(&str, f64)>>();
+                .collect::<Vec<(&str, (f64, u32, u32))>>();
             scored_possible_words.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
             for (word, score) in scored_possible_words.iter().take(10) {
-                println!("{}, average non avoid: {}", word, score);
+                println!("{}, average non avoid: {}, best: {}, worst: {}", word, score.0, score.2, score.1);
             }
         } else {
             let mut scored_possible_words = possible_words.par_iter()
@@ -217,29 +217,39 @@ fn score_word(word: &str, words: &Vec<&str>, known_placement_letters: &Vec<Optio
 
         total_decrease += decrease;
 
-        if *real_word == word {
-            continue;
+        if *real_word != word {
+            best_decrease = best_decrease.max(decrease);
+            worst_decrease = worst_decrease.min(decrease);
         }
-
-        best_decrease = best_decrease.max(decrease);
-        worst_decrease = worst_decrease.min(decrease);
     }
 
     let count = words.len() as f64;
     (count - total_decrease as f64 / count, count - worst_decrease as f64, count - best_decrease as f64)
 }
 
-fn score_word_fast(word: &str, words: &Vec<&str>) -> f64 {
+fn score_word_fast(word: &str, words: &Vec<&str>) -> (f64, u32, u32) {
     // needed, avoid
     let mut non_avoid = 0;
+    let mut best_non_avoid = 0;
+    let mut worst_non_avoid = 10000;
 
     for real_word in words.iter() {
+        let mut local_non_avoid = 0;
+
         for char in word.chars() {
             if real_word.contains(char) {
-                non_avoid += 1;
+                local_non_avoid += 1;
             }
+        }
+
+        non_avoid += local_non_avoid;
+
+
+        if *real_word != word {
+            best_non_avoid = best_non_avoid.max(local_non_avoid);
+            worst_non_avoid = worst_non_avoid.min(local_non_avoid);
         }
     }
 
-    non_avoid as f64 / words.len() as f64
+    (non_avoid as f64 / words.len() as f64, worst_non_avoid, best_non_avoid)
 }
