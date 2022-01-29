@@ -15,9 +15,7 @@ fn main() {
     let mut words_string = String::new();
     words_file.read_to_string(&mut words_string).unwrap();
 
-    let mut known_placement_letters: Vec<Option<String>> = vec![None; word_len];
-    let mut needed_letters : HashMap<char, HashSet<usize>> = HashMap::new();
-    let mut avoid_letters : HashSet<char> = HashSet::new();
+    let mut context = Context { know_placements: vec![None; word_len], letter_data: HashMap::new() };
 
     let mut possible_words : Vec<&str> = words_string.lines().collect();
     let alt_word_list = words_string.lines()
@@ -30,7 +28,7 @@ fn main() {
         let start = Instant::now();
 
         possible_words = possible_words.par_iter()
-            .filter(|&word| check_word(word, word_len, &known_placement_letters, &needed_letters, &avoid_letters))
+            .filter(|&word| check_word(word, word_len, &context))
             .copied()
             .collect::<Vec<&str>>();
 
@@ -64,7 +62,7 @@ fn main() {
             }
         } else {
             let mut scored_possible_words = possible_words.par_iter()
-                .map(|&word| (word, score_word(word, possible_words, &known_placement_letters, &needed_letters, &avoid_letters)))
+                .map(|&word| (word, score_word(word, possible_words, &context)))
                 .collect::<Vec<(&str, (f64, f64, f64))>>();
             scored_possible_words.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
@@ -78,7 +76,7 @@ fn main() {
 
         println!("enter new info in format place,needed,avoid (a??b?,?c???,d)");
         let input = read().to_lowercase();
-        parse_input(&input, &mut known_placement_letters, &mut needed_letters, &mut avoid_letters);
+        parse_input(&input, &mut context);
 
         first = false;
     }
@@ -90,33 +88,91 @@ fn read() -> String {
     input.trim_end().to_owned()
 }
 
-fn parse_input(input: &str, known_placement_letters: &mut Vec<Option<String>>, needed_letters : &mut HashMap<char, HashSet<usize>>, avoid_letters : &mut HashSet<char>) {
+#[derive(Clone, Debug)]
+struct Context {
+    know_placements: Vec<Option<String>>,
+    // map from char to (set of indices to avoid, min occurrences, max occurrences)
+    letter_data : HashMap<char, (HashSet<usize>, u32, Option<u32>)>,
+}
+
+fn parse_input(input: &str, ctx: &mut Context) {
+    let mut seen = HashMap::new();
+    ctx.know_placements.iter()
+        .filter_map(|entry| entry.as_ref())
+        .for_each(|entry| *seen.entry(entry.chars().next().unwrap()).or_insert(0) += 1);
+
     for (mode, data) in input.split(',').enumerate() {
         for (idx, char) in data.chars().enumerate() {
             match mode {
                 0 => {
                     if char != '?' {
-                        known_placement_letters[idx] = Some(char.to_string());
-                        needed_letters.retain(|letter, _| *letter != char);
-                        avoid_letters.retain(|letter| *letter != char);
+                        *seen.entry(char).or_insert(0) += 1;
+
+                        ctx.know_placements[idx] = Some(char.to_string());
+                        /*match ctx.letter_data.entry(char) {
+                            Entry::Occupied(mut occupied) => {
+                                let val = occupied.get_mut();
+
+                                if val.0.is_empty() {
+                                    occupied.remove();
+                                    continue;
+                                }
+
+                                if val.1 <= 1 {
+                                    occupied.remove();
+                                    continue;
+                                } else {
+                                    val.1 -= 1;
+                                }
+
+                                if let Some(max) = &mut val.2 {
+                                    if *max <= 1 {
+                                        occupied.remove();
+                                        continue;
+                                    }
+                                    *max -= 1;
+                                }
+                            }
+                            _ => {}
+                        }*/
                     }
                 }
                 1 => {
                     if char != '?' {
-                        match needed_letters.entry(char) {
+                        let count = seen.entry(char).or_insert(0);
+                        *count += 1;
+
+                        match ctx.letter_data.entry(char) {
                             Entry::Occupied(mut occupied) => {
-                                occupied.get_mut().insert(idx);
+                                let val = occupied.get_mut();
+                                val.0.insert(idx);
+                                val.1 = val.1.max(*count);
+                                if let Some(max) = &mut val.2 {
+                                    *max = (*max).max(*count);
+                                }
                             }
                             Entry::Vacant(vacant) => {
-                                vacant.insert(HashSet::from([idx]));
+                                vacant.insert((HashSet::from([idx]), *count, None));
                             }
                         }
-                        avoid_letters.retain(|letter| *letter != char);
                     }
                 }
                 2 => {
-                    if !known_placement_letters.contains(&Some(char.to_string())) && !needed_letters.contains_key(&char) {
-                        avoid_letters.insert(char);
+                    let count = *seen.entry(char).or_insert(0);
+
+                    match ctx.letter_data.entry(char) {
+                        Entry::Occupied(mut occupied) => {
+                            let val = occupied.get_mut();
+
+                            if let Some(max) = &mut val.2 {
+                                *max = (*max).max(count);
+                            } else {
+                                val.2 = Some(count);
+                            }
+                        }
+                        Entry::Vacant(vacant) => {
+                            vacant.insert((HashSet::new(), count, Some(count)));
+                        }
                     }
                 }
                 _ => {
@@ -125,6 +181,8 @@ fn parse_input(input: &str, known_placement_letters: &mut Vec<Option<String>>, n
             }
         }
     }
+
+    println!("{:#?}", ctx);
 }
 
 const COMMON: &[char] = &['e', 't', 'o', 'a', 'i'];
@@ -148,69 +206,109 @@ fn init_filter(word: &str, word_len: usize) -> bool {
     true
 }
 
-fn check_word(word: &str, word_len: usize, known_placement_letters: &Vec<Option<String>>, needed_letters : &HashMap<char, HashSet<usize>>, avoid_letters : &HashSet<char>) -> bool {
+fn check_word(word: &str, word_len: usize, ctx: &Context) -> bool {
     if word.len() != word_len {
         return false;
     }
 
-   for needed_letter in needed_letters.keys() {
-        if !word.contains(*needed_letter) {
-            return false;
-        }
-    }
+    let mut seen = HashMap::new();
 
     for (idx, char) in word.chars().enumerate() {
-        if let Some(Some(needed_char)) = known_placement_letters.get(idx) {
+        if let Some(Some(needed_char)) = ctx.know_placements.get(idx) {
             if *needed_char != char.to_string() {
                 return false;
             }
         }
 
-        if let Some(avoid_idxs) = needed_letters.get(&char) {
+        if let Some((avoid_idxs, _, max_count)) = ctx.letter_data.get(&char) {
             if avoid_idxs.contains(&idx) {
+                return false;
+            }
+
+            if let Some(0) = max_count {
                 return false;
             }
         }
 
-        if avoid_letters.contains(&char) {
+        *seen.entry(char).or_insert(0) += 1;
+    }
+
+    for (letter, (_, min_count, max_count)) in ctx.letter_data.iter() {
+        let actual_count = seen.get(letter).unwrap_or(&0);
+
+        if actual_count < min_count {
             return false;
+        }
+
+        if let Some(max_count) = max_count {
+            if actual_count > max_count {
+                return false;
+            }
         }
     }
 
     true
 }
 
-fn score_word(word: &str, words: &Vec<&str>, known_placement_letters: &Vec<Option<String>>, needed_letters : &HashMap<char, HashSet<usize>>, avoid_letters : &HashSet<char>) -> (f64, f64, f64) {
+fn score_word(word: &str, words: &Vec<&str>, ctx: &Context) -> (f64, f64, f64) {
     let mut total_decrease = 0;
     let mut best_decrease = 0;
     let mut worst_decrease = 10000;
 
     for real_word in words.iter() {
-        let mut known_placement_letters2 = known_placement_letters.clone();
-        let mut needed_letters2 = needed_letters.clone();
-        let mut avoid_letters2 = avoid_letters.clone();
+        let mut alternate_ctx = ctx.clone();
+
+        let mut seen = HashMap::new();
+        alternate_ctx.know_placements.iter()
+            .filter_map(|entry| entry.as_ref())
+            .for_each(|entry| *seen.entry(entry.chars().next().unwrap()).or_insert(0) += 1);
 
         let mut chars2 = real_word.chars();
         for (idx, char) in word.chars().enumerate() {
             if char == chars2.next().unwrap() {
-                known_placement_letters2[idx]= Some(char.to_string());
+                *seen.entry(char).or_insert(0) += 1;
+
+                alternate_ctx.know_placements[idx]= Some(char.to_string());
             } else if real_word.contains(char) {
-                match needed_letters2.entry(char) {
+                let count = seen.entry(char).or_insert(0);
+                *count += 1;
+
+                match alternate_ctx.letter_data.entry(char) {
                     Entry::Occupied(mut occupied) => {
-                        occupied.get_mut().insert(idx);
+                        let val = occupied.get_mut();
+                        val.0.insert(idx);
+                        val.1 = val.1.max(*count);
+                        if let Some(max) = &mut val.2 {
+                            *max = (*max).max(*count);
+                        }
                     }
                     Entry::Vacant(vacant) => {
-                        vacant.insert(HashSet::from([idx]));
+                        vacant.insert((HashSet::from([idx]), *count, None));
                     }
                 }
             } else {
-                avoid_letters2.insert(char);
+                let count = *seen.entry(char).or_insert(0);
+
+                match alternate_ctx.letter_data.entry(char) {
+                    Entry::Occupied(mut occupied) => {
+                        let val = occupied.get_mut();
+
+                        if let Some(max) = &mut val.2 {
+                            *max = (*max).max(count);
+                        } else {
+                            val.2 = Some(count);
+                        }
+                    }
+                    Entry::Vacant(vacant) => {
+                        vacant.insert((HashSet::new(), count, Some(count)));
+                    }
+                }
             }
         }
 
 
         let new_possible_word_count = words.par_iter()
-            .filter(|word| check_word(*word, word.len(), &known_placement_letters2, &needed_letters2, &avoid_letters2))
+            .filter(|word| check_word(*word, word.len(), &alternate_ctx))
             .count();
 
         let decrease = words.len() - new_possible_word_count;
