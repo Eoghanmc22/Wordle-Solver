@@ -106,35 +106,10 @@ fn parse_input(input: &str, ctx: &mut Context) {
             match mode {
                 0 => {
                     if char != '?' {
-                        *seen.entry(char).or_insert(0) += 1;
-
-                        ctx.know_placements[idx] = Some(char.to_string());
-                        /*match ctx.letter_data.entry(char) {
-                            Entry::Occupied(mut occupied) => {
-                                let val = occupied.get_mut();
-
-                                if val.0.is_empty() {
-                                    occupied.remove();
-                                    continue;
-                                }
-
-                                if val.1 <= 1 {
-                                    occupied.remove();
-                                    continue;
-                                } else {
-                                    val.1 -= 1;
-                                }
-
-                                if let Some(max) = &mut val.2 {
-                                    if *max <= 1 {
-                                        occupied.remove();
-                                        continue;
-                                    }
-                                    *max -= 1;
-                                }
-                            }
-                            _ => {}
-                        }*/
+                        ctx.know_placements.push(Some(char.to_string()));
+                        if ctx.know_placements.swap_remove(idx).is_none() {
+                            *seen.entry(char).or_insert(0) += 1;
+                        }
                     }
                 }
                 1 => {
@@ -259,53 +234,52 @@ fn score_word(word: &str, words: &Vec<&str>, ctx: &Context) -> (f64, f64, f64) {
         let mut alternate_ctx = ctx.clone();
 
         let mut seen = HashMap::new();
-        alternate_ctx.know_placements.iter()
-            .filter_map(|entry| entry.as_ref())
-            .for_each(|entry| *seen.entry(entry.chars().next().unwrap()).or_insert(0) += 1);
 
         let mut chars2 = real_word.chars();
         for (idx, char) in word.chars().enumerate() {
             if char == chars2.next().unwrap() {
                 *seen.entry(char).or_insert(0) += 1;
 
-                alternate_ctx.know_placements[idx]= Some(char.to_string());
-            } else if real_word.contains(char) {
-                let count = seen.entry(char).or_insert(0);
-                *count += 1;
-
-                match alternate_ctx.letter_data.entry(char) {
-                    Entry::Occupied(mut occupied) => {
-                        let val = occupied.get_mut();
-                        val.0.insert(idx);
-                        val.1 = val.1.max(*count);
-                        if let Some(max) = &mut val.2 {
-                            *max = (*max).max(*count);
-                        }
-                    }
-                    Entry::Vacant(vacant) => {
-                        vacant.insert((HashSet::from([idx]), *count, None));
-                    }
-                }
+                alternate_ctx.know_placements[idx] = Some(char.to_string());
             } else {
-                let count = *seen.entry(char).or_insert(0);
+                let count = seen.entry(char).or_insert(0);
 
-                match alternate_ctx.letter_data.entry(char) {
-                    Entry::Occupied(mut occupied) => {
-                        let val = occupied.get_mut();
+                if real_word.matches(char).count() as u32 > *count {
+                    *count += 1;
 
-                        if let Some(max) = &mut val.2 {
-                            *max = (*max).max(count);
-                        } else {
-                            val.2 = Some(count);
+                    match alternate_ctx.letter_data.entry(char) {
+                        Entry::Occupied(mut occupied) => {
+                            let val = occupied.get_mut();
+                            val.0.insert(idx);
+                            val.1 = val.1.max(*count);
+                            if let Some(max) = &mut val.2 {
+                                *max = (*max).max(*count);
+                            }
+                        }
+                        Entry::Vacant(vacant) => {
+                            vacant.insert((HashSet::from([idx]), *count, None));
                         }
                     }
-                    Entry::Vacant(vacant) => {
-                        vacant.insert((HashSet::new(), count, Some(count)));
+                } else {
+                    let count = *count;
+
+                    match alternate_ctx.letter_data.entry(char) {
+                        Entry::Occupied(mut occupied) => {
+                            let val = occupied.get_mut();
+
+                            if let Some(max) = &mut val.2 {
+                                *max = (*max).max(count);
+                            } else {
+                                val.2 = Some(count);
+                            }
+                        }
+                        Entry::Vacant(vacant) => {
+                            vacant.insert((HashSet::new(), count, Some(count)));
+                        }
                     }
                 }
             }
         }
-
 
         let new_possible_word_count = words.par_iter()
             .filter(|word| check_word(*word, word.len(), &alternate_ctx))
