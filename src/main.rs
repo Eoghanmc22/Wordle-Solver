@@ -5,19 +5,39 @@ use std::io::{Read, stdin};
 use std::time::Instant;
 
 use rayon::prelude::*;
+use time::UtcOffset;
 
 const FAST_THRESHOLD : usize = 1600;
 
 fn main() {
-    println!("enter word len");
-    let word_len = read().parse::<usize>().unwrap();
-    let mut words_file = File::open("words.txt").unwrap();
+    println!("enter word list");
+    let list = format!("{}.txt", read());
+
+    let mut words_file = File::open(list.clone()).unwrap();
     let mut words_string = String::new();
     words_file.read_to_string(&mut words_string).unwrap();
+    let mut possible_words : Vec<&str> = words_string.lines().collect();
+
+    if list == "wordle.txt" {
+        println!("would you like to calculate the answer based on the current time (true/false)");
+
+        if read().parse::<bool>().unwrap() {
+            let wordle_start = time::Date::from_calendar_date(2021, time::Month::June, 19).unwrap();
+            let now = time::OffsetDateTime::now_utc().to_offset(UtcOffset::from_hms(-5, 0, 0).unwrap()).date();
+            let difference = now - wordle_start;
+            let word_idx = (difference.whole_milliseconds() as f64 / 86400000.0).round() as usize;
+
+            println!("The word should be {}", possible_words[word_idx]);
+
+            return;
+        }
+    }
+
+    println!("enter word len");
+    let word_len = read().parse::<usize>().unwrap();
 
     let mut context = Context { know_placements: vec![None; word_len], letter_data: HashMap::new() };
 
-    let mut possible_words : Vec<&str> = words_string.lines().collect();
     let alt_word_list = words_string.lines()
         .filter(|word| init_filter(word, word_len))
         .collect::<Vec<&str>>();
@@ -157,8 +177,6 @@ fn parse_input(input: &str, ctx: &mut Context) {
             }
         }
     }
-
-    println!("{:#?}", ctx);
 }
 
 const COMMON: &[char] = &['e', 't', 'o', 'a', 'i'];
