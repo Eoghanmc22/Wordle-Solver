@@ -56,6 +56,7 @@ fn main() {
                 .map(|&word| (word, score_word_fast(word, possible_words)))
                 .collect::<Vec<(&str, (f64, u32, u32))>>();
             scored_possible_words.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+            scored_possible_words.dedup_by(|a, b| a.1.0 == b.1.0);
 
             for (word, score) in scored_possible_words.iter().take(10) {
                 println!("{}, average non avoid: {}, best: {}, worst: {}", word, score.0, score.2, score.1);
