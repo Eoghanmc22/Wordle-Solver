@@ -16,18 +16,30 @@ fn main() {
     let mut words_file = File::open(list.clone()).unwrap();
     let mut words_string = String::new();
     words_file.read_to_string(&mut words_string).unwrap();
-    let mut possible_words : Vec<&str> = words_string.lines().collect();
+    let mut possible_answers = words_string.lines().collect::<Vec<&str>>();
+    let mut possible_guesses = words_string.lines().collect::<Vec<&str>>();
 
     if list == "wordle.txt" {
-        println!("would you like to calculate the answer based on the current time (true/false)");
+        println!("would you like to include possible guesses");
+        if read().parse::<bool>().unwrap() {
+            let mut guesses_file = File::open("wordle_guesses.txt").unwrap();
+            let mut guesses_string = String::new();
+            guesses_file.read_to_string(&mut guesses_string).unwrap();
+            possible_guesses.extend(guesses_string.lines());
+        }
 
+        println!("would you like to calculate the answer based on the current time (true/false)");
         if read().parse::<bool>().unwrap() {
             let wordle_start = time::Date::from_calendar_date(2021, time::Month::June, 19).unwrap();
             let now = time::OffsetDateTime::now_utc().to_offset(UtcOffset::from_hms(-5, 0, 0).unwrap()).date();
-            let difference = now - wordle_start;
-            let word_idx = (difference.whole_milliseconds() as f64 / 86400000.0).round() as usize;
 
-            println!("The word should be {}", possible_words[word_idx]);
+            println!("enter day offset");
+            let day_offset = read().parse::<f64>().unwrap();
+
+            let difference = now - wordle_start;
+            let word_idx = ((difference.whole_milliseconds() as f64 / 86400000.0).round() + day_offset) as usize;
+
+            println!("The word should be {}", possible_answers[word_idx % possible_answers.len()]);
 
             return;
         }
@@ -44,16 +56,25 @@ fn main() {
 
     let mut first = true;
 
+    println!("Skip first");
+    if read().parse::<bool>().unwrap() {
+        println!("enter new info in format place,needed,avoid (a??b?,?c???,d)");
+        let input = read().to_lowercase();
+        parse_input(&input, &mut context);
+
+        first = false;
+    }
+
     loop {
         let start = Instant::now();
 
-        possible_words = possible_words.par_iter()
+        possible_answers = possible_answers.par_iter()
             .filter(|&word| check_word(word, word_len, &context))
             .copied()
             .collect::<Vec<&str>>();
 
-        let mut possible_words = &possible_words;
-        let mut fast = possible_words.len() > FAST_THRESHOLD;
+        let mut possible_words = &possible_answers;
+        let mut fast = false; //possible_words.len() > FAST_THRESHOLD;
 
         if first && fast {
             println!("using culled list: was {}, now: {}", possible_words.len(), alt_word_list.len());
